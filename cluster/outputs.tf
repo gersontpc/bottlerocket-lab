@@ -28,3 +28,13 @@ output "configure_kubectl" {
   description = "Command to configure kubectl to connect to the cluster"
   value       = "aws eks update-kubeconfig --name ${aws_eks_cluster.this.name} --region ${var.aws_region}"
 }
+
+output "cloudwatch_log_group_name" {
+  description = "Name of the CloudWatch log group receiving EKS control-plane logs"
+  value       = aws_cloudwatch_log_group.eks.name
+}
+
+output "eks_mcp_server_policy_arn" {
+  description = "ARN of the IAM policy to attach to the principal that runs the Amazon EKS MCP Server"
+  value       = aws_iam_policy.eks_mcp_server.arn
+}

@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "awslabs.eks-mcp-server": {
+      "command": "uvx",
+      "args": [
+        "awslabs.eks-mcp-server@latest",
+        "--allow-write",
+        "--allow-sensitive-data-access"
+      ],
+      "env": {
+        "AWS_REGION": "us-east-1",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      },
+      "autoApprove": [],
+      "disabled": false
+    }
+  }
+}
