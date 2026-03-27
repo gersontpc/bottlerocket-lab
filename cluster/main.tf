@@ -1,11 +1,42 @@
 data "aws_caller_identity" "current" {}
 
 ################################################################################
-# Existing VPC (data source – no network resources are created)
+# Existing VPC and subnets (data sources – no network resources are created)
+# The VPC is looked up by its Name tag; private subnets are discovered
+# automatically using the standard EKS tag kubernetes.io/role/internal-elb=1.
 ################################################################################
 
 data "aws_vpc" "this" {
-  id = var.vpc_id
+  filter {
+    name   = "tag:Name"
+    values = [var.vpc_name]
+  }
+
+  lifecycle {
+    postcondition {
+      condition     = self.id != ""
+      error_message = "No VPC found with Name tag '${var.vpc_name}'. Ensure the VPC exists and is tagged with Name = '${var.vpc_name}'."
+    }
+  }
+}
+
+data "aws_subnets" "private" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.this.id]
+  }
+
+  filter {
+    name   = "tag:kubernetes.io/role/internal-elb"
+    values = ["1"]
+  }
+
+  lifecycle {
+    postcondition {
+      condition     = length(self.ids) > 0
+      error_message = "No private subnets found in VPC '${var.vpc_name}'. Ensure subnets are tagged with 'kubernetes.io/role/internal-elb = 1'."
+    }
+  }
 }
 
 ################################################################################
@@ -156,7 +187,7 @@ resource "aws_eks_cluster" "this" {
   vpc_config {
     endpoint_public_access  = true
     endpoint_private_access = true
-    subnet_ids              = var.private_subnet_ids
+    subnet_ids              = data.aws_subnets.private.ids
   }
 
   tags = {
