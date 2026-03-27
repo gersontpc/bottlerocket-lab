@@ -21,7 +21,7 @@ output "cluster_certificate_authority_data" {
 
 output "vpc_id" {
   description = "ID of the VPC"
-  value       = aws_vpc.this.id
+  value       = data.aws_vpc.this.id
 }
 
 output "configure_kubectl" {
