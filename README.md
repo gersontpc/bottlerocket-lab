@@ -78,7 +78,39 @@ Or add to `~/.cursor/mcp.json` (replace `us-east-1` with your cluster region):
 
 #### VS Code
 
+The repository ships a ready-to-use project-scoped config at `.vscode/mcp.json`. Open the project folder in VS Code and the MCP server will be available immediately in GitHub Copilot Chat (agent mode).
+
+> **Note:** `AWS_REGION` in `.vscode/mcp.json` defaults to `us-east-1`. Update it to match the region used for your cluster (i.e., `var.aws_region`).
+
+**Requirements:** VS Code 1.99+ with the [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) extension (or any MCP-compatible extension).
+
+You can also install it with a single click:
+
 [![Install on VS Code](https://img.shields.io/badge/Install_on-VS_Code-FF9900?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=EKS%20MCP%20Server&config=%7B%22autoApprove%22%3A%5B%5D%2C%22disabled%22%3Afalse%2C%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22awslabs.eks-mcp-server%40latest%22%2C%22--allow-write%22%2C%22--allow-sensitive-data-access%22%5D%2C%22env%22%3A%7B%22FASTMCP_LOG_LEVEL%22%3A%22ERROR%22%7D%2C%22transportType%22%3A%22stdio%22%7D)
+
+Or configure manually: add the following to `.vscode/mcp.json` in the project root (replace `us-east-1` with your cluster region):
+
+```json
+{
+  "servers": {
+    "awslabs.eks-mcp-server": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "awslabs.eks-mcp-server@latest",
+        "--allow-write",
+        "--allow-sensitive-data-access"
+      ],
+      "env": {
+        "AWS_REGION": "us-east-1",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    }
+  }
+}
+```
+
+To verify the server is running, open the Copilot Chat panel, switch to **Agent** mode, and type `@awslabs.eks-mcp-server /tools` — you should see the list of available EKS tools.
 
 ### What the EKS MCP Server can do
 
@@ -100,3 +132,4 @@ Or add to `~/.cursor/mcp.json` (replace `us-east-1` with your cluster region):
 | `enabled_cluster_log_types` on `aws_eks_cluster.this` | Sends API, audit, authenticator, controller-manager, and scheduler logs to CloudWatch |
 | `aws_iam_policy.eks_mcp_server` | Minimum read permissions required by the MCP server |
 | `.kiro/settings/mcp.json` | Ready-to-use MCP configuration for Kiro IDE |
+| `.vscode/mcp.json` | Ready-to-use MCP configuration for VS Code (GitHub Copilot agent mode) |
