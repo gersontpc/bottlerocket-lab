@@ -16,10 +16,19 @@ variable "kubernetes_version" {
   default     = "1.32"
 }
 
-variable "vpc_cidr" {
-  description = "CIDR block for the VPC"
+variable "vpc_id" {
+  description = "ID of the existing VPC"
   type        = string
-  default     = "10.0.0.0/16"
+}
+
+variable "private_subnet_ids" {
+  description = "List of existing private subnet IDs (one per availability zone: zone-a, zone-b, zone-c)"
+  type        = list(string)
+
+  validation {
+    condition     = length(var.private_subnet_ids) == 3
+    error_message = "Exactly 3 private subnet IDs must be provided, one per availability zone (zone-a, zone-b, zone-c)."
+  }
 }
 
 variable "brupop_chart_version" {
