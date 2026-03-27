@@ -13,5 +13,5 @@ resource "helm_release" "bottlerocket_update_operator" {
   namespace        = "brupop-bottlerocket-aws"
   create_namespace = true
 
-  depends_on = [module.eks]
+  depends_on = [aws_eks_cluster.this]
 }
