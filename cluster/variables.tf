@@ -27,3 +27,9 @@ variable "brupop_chart_version" {
   type        = string
   default     = "1.3.0"
 }
+
+variable "cloudwatch_log_retention_days" {
+  description = "Number of days to retain EKS control plane logs in CloudWatch"
+  type        = number
+  default     = 90
+}

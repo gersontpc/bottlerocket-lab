@@ -218,6 +218,21 @@ resource "aws_iam_role_policy_attachment" "node_AmazonEC2ContainerRegistryPullOn
 }
 
 ################################################################################
+# CloudWatch Log Group for EKS control-plane logs
+# Required so the Amazon EKS MCP Server can query cluster logs for AI insights.
+################################################################################
+
+resource "aws_cloudwatch_log_group" "eks" {
+  name              = "/aws/eks/${var.cluster_name}/cluster"
+  retention_in_days = var.cloudwatch_log_retention_days
+
+  tags = {
+    Name        = var.cluster_name
+    Environment = "lab"
+  }
+}
+
+################################################################################
 # EKS Cluster – Auto Mode with Bottlerocket
 ################################################################################
 
@@ -225,6 +240,10 @@ resource "aws_eks_cluster" "this" {
   name     = var.cluster_name
   role_arn = aws_iam_role.cluster.arn
   version  = var.kubernetes_version
+
+  # Send control-plane logs to CloudWatch so the EKS MCP Server can surface
+  # AI insights (health, audit, authentication, scheduling, etc.).
+  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
 
   access_config {
     authentication_mode = "API"
@@ -262,6 +281,7 @@ resource "aws_eks_cluster" "this" {
   }
 
   depends_on = [
+    aws_cloudwatch_log_group.eks,
     aws_iam_role_policy_attachment.cluster_AmazonEKSClusterPolicy,
     aws_iam_role_policy_attachment.cluster_AmazonEKSComputePolicy,
     aws_iam_role_policy_attachment.cluster_AmazonEKSBlockStoragePolicy,
@@ -290,4 +310,53 @@ resource "aws_eks_access_policy_association" "creator_admin" {
   }
 
   depends_on = [aws_eks_access_entry.creator]
+}
+
+################################################################################
+# IAM Policy for Amazon EKS MCP Server
+#
+# Grants the minimum permissions required by the EKS MCP Server to provide
+# AI-driven insights about the cluster.
+# Attach this policy to the IAM user / role that runs the MCP server locally.
+# See: https://docs.aws.amazon.com/eks/latest/userguide/eks-mcp-introduction.html
+################################################################################
+
+resource "aws_iam_policy" "eks_mcp_server" {
+  name        = "${var.cluster_name}-eks-mcp-server"
+  description = "Minimum read-only permissions required by the Amazon EKS MCP Server to generate AI insights"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EksMcpServerReadOnly"
+        Effect = "Allow"
+        Action = [
+          "eks:DescribeCluster",
+          "eks:DescribeInsight",
+          "eks:ListInsights",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeRouteTables",
+          "cloudformation:DescribeStacks",
+          "cloudwatch:GetMetricData",
+          "logs:StartQuery",
+          "logs:GetQueryResults",
+          "iam:GetRole",
+          "iam:GetRolePolicy",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies",
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "eks-mcpserver:QueryKnowledgeBase",
+        ]
+        Resource = "*"
+      },
+    ]
+  })
+
+  tags = {
+    Name        = "${var.cluster_name}-eks-mcp-server"
+    Environment = "lab"
+  }
 }
