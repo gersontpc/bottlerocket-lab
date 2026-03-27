@@ -24,6 +24,11 @@ output "vpc_id" {
   value       = data.aws_vpc.this.id
 }
 
+output "private_subnet_ids" {
+  description = "IDs of the private subnets used by the EKS cluster"
+  value       = data.aws_subnets.private.ids
+}
+
 output "configure_kubectl" {
   description = "Command to configure kubectl to connect to the cluster"
   value       = "aws eks update-kubeconfig --name ${aws_eks_cluster.this.name} --region ${var.aws_region}"

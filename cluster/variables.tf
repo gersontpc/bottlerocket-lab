@@ -16,18 +16,13 @@ variable "kubernetes_version" {
   default     = "1.32"
 }
 
-variable "vpc_id" {
-  description = "ID of the existing VPC"
+variable "vpc_name" {
+  description = "Name tag of the existing VPC. Used to look up the VPC ID automatically via data source."
   type        = string
-}
-
-variable "private_subnet_ids" {
-  description = "List of existing private subnet IDs (one per availability zone: zone-a, zone-b, zone-c)"
-  type        = list(string)
 
   validation {
-    condition     = length(var.private_subnet_ids) == 3
-    error_message = "Exactly 3 private subnet IDs must be provided, one per availability zone (zone-a, zone-b, zone-c)."
+    condition     = length(var.vpc_name) > 0
+    error_message = "The vpc_name variable must not be empty."
   }
 }
 
