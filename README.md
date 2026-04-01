@@ -200,3 +200,9 @@ O padrão atual agenda uma execução diária às `01:00 UTC`, dentro da janela 
 - para uso contínuo em CI, o ideal é armazenar o state em backend compartilhado, como S3 com locking
 - os arquivos `.tfstate` não devem ser versionados
 - mudanças em `cluster/templates/` impactam diretamente o bootstrap e a observabilidade dos nós Bottlerocket
+
+## Fontes
+
+- [Documentação do Bottlerocket sobre host containers](https://bottlerocket.dev/en/os/1.54.x/api/settings/host-containers/#container_source) (propósito: referência para a configuração e o comportamento de `settings.host-containers.*`, incluindo a origem da imagem do container)
+- [README do Bottlerocket Update Operator](https://github.com/bottlerocket-os/bottlerocket-update-operator/blob/develop/README.md) (propósito: documentação operacional e de uso do BRUPOP)
+- [Repositório do Bottlerocket Update Operator](https://github.com/bottlerocket-os/bottlerocket-update-operator) (propósito: código-fonte, releases, issues e visão geral do projeto)
