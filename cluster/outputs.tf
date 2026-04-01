@@ -24,9 +24,14 @@ output "vpc_id" {
   value       = data.aws_vpc.this.id
 }
 
-output "private_subnet_ids" {
-  description = "IDs of the private subnets used by the EKS cluster"
-  value       = data.aws_subnets.private.ids
+output "public_subnet_ids" {
+  description = "IDs of the public subnets used by the EKS cluster"
+  value       = data.aws_subnets.public.ids
+}
+
+output "fargate_subnet_ids" {
+  description = "IDs of the private subnets used by the EKS Fargate profiles"
+  value       = local.fargate_subnet_ids
 }
 
 output "configure_kubectl" {
@@ -39,7 +44,24 @@ output "cloudwatch_log_group_name" {
   value       = aws_cloudwatch_log_group.eks.name
 }
 
-output "eks_mcp_server_policy_arn" {
-  description = "ARN of the IAM policy to attach to the principal that runs the Amazon EKS MCP Server"
-  value       = aws_iam_policy.eks_mcp_server.arn
+output "karpenter_namespace" {
+  description = "Namespace where Karpenter is installed"
+  value       = var.karpenter_namespace
+}
+
+output "karpenter_node_role_arn" {
+  description = "ARN of the IAM role assumed by Karpenter-managed nodes"
+  value       = aws_iam_role.node.arn
+}
+
+output "karpenter_instance_profile_name" {
+  description = "Name of the IAM instance profile used by the Bottlerocket EC2NodeClass"
+  value       = aws_iam_instance_profile.node.name
+}
+
+output "fargate_profile_names" {
+  description = "Names of the EKS Fargate profiles used by the cluster add-ons"
+  value = [
+    aws_eks_fargate_profile.karpenter.fargate_profile_name,
+  ]
 }

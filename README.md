@@ -1,135 +1,65 @@
 # bottlerocket-lab
 Bottlerocket
 
-## Amazon EKS MCP Server Integration
+### GitHub Actions Workflow
 
-This cluster is integrated with the [Amazon EKS MCP Server](https://docs.aws.amazon.com/eks/latest/userguide/eks-mcp-introduction.html) (`awslabs.eks-mcp-server`), enabling AI code assistants (Kiro, Cursor, VS Code, etc.) to generate insights and manage the platform through natural language.
+The repository now includes a manual workflow at `.github/workflows/provision-cluster-and-deploy-app.yml` that:
 
-### How it works
+1. Runs `terraform init`, `plan`, and `apply` inside `cluster/`
+2. Updates the kubeconfig for the newly created EKS cluster
+3. Waits for the `karpenter` deployment rollout to complete on Fargate
+4. Applies `app/nginx-deployment.yaml` and waits for the `nginx` rollout
 
-The EKS MCP Server runs **locally on your machine** and connects to the EKS cluster via the AWS APIs. It exposes cluster state, logs, events, and management capabilities to your AI assistant.
+Configure one of these authentication options in your GitHub repository before running the workflow:
 
-```
-Your AI Assistant  ──►  EKS MCP Server (local)  ──►  AWS EKS APIs  ──►  bottlerocket-lab cluster
-```
+- Recommended: `AWS_ROLE_ARN` for GitHub OIDC federation
+- Alternative: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
 
-### Prerequisites
+The workflow is pinned to `us-east-1`, matching the Terraform defaults in this repository.
 
-- Python 3.10+ and [`uv`](https://docs.astral.sh/uv/getting-started/installation/) installed
-- AWS CLI configured with credentials
-- Your IAM user/role must have the **`bottlerocket-lab-eks-mcp-server`** policy attached (output from Terraform: `eks_mcp_server_policy_arn`)
-- Your IAM principal must have an EKS Access Entry on the cluster (the cluster creator already has admin access; others can be added via the `aws_eks_access_entry` resource)
+> **Important:** the Terraform configuration in this repository does not define a remote backend. The workflow will still work for a single run, but repeated CI applies should use a shared backend such as S3 to preserve Terraform state between runs.
 
-### Setup
+> **Important:** the workflow now provisions Karpenter on EKS Fargate. AWS only supports EKS Fargate on private subnets, so the cluster configuration must either create or use private subnets in the selected VPC.
 
-1. **Attach the IAM policy** to your IAM user or role:
-   ```bash
-   # Retrieve the policy ARN from Terraform output
-   cd cluster
-   terraform output eks_mcp_server_policy_arn
+### Karpenter and Fargate
 
-   # Attach it to your IAM identity
-   aws iam attach-user-policy \
-     --user-name <YOUR_IAM_USER> \
-     --policy-arn <POLICY_ARN>
-   ```
+The cluster control plane and Karpenter-managed Bottlerocket worker nodes still use the selected public subnets, but the `karpenter` controller now runs on a dedicated EKS Fargate profile.
 
-2. **Configure your kubeconfig** so the MCP server can reach the cluster:
-   ```bash
-   $(terraform output -raw configure_kubectl)
-   ```
+By default, the Terraform in `cluster/network.tf` now creates three private subnets in `us-east-1a`, `us-east-1b`, and `us-east-1c`, plus a single NAT Gateway and a private route table for the Fargate profiles. If you already have private subnets, set `fargate_subnet_ids` to use them directly. If you want to disable the automatic network path, set `create_fargate_private_network = false`.
 
-3. **Configure your AI assistant** using one of the options below.
+### Customizing Bottlerocket user data
 
-### AI Assistant Configuration
+The Bottlerocket nodes are now provisioned by Karpenter through an `EC2NodeClass`, so custom TOML user data lives in `cluster/templates/bottlerocket-user-data.toml.tftpl`.
 
-#### Kiro IDE
+The `EC2NodeClass` and `NodePool` definitions now live in a local Helm chart under `cluster/charts/karpenter-resources`, and Terraform applies them with `helm_release.karpenter_resources` instead of `kubectl apply`.
 
-The repository already ships a ready-to-use config at `.kiro/settings/mcp.json`. Open the project in Kiro and it will be picked up automatically. You can also install it with a single click:
+Terraform still renders the Bottlerocket TOML with `templatefile(...)` and passes the result to `spec.userData` on the Bottlerocket `EC2NodeClass`. The default `NodePool` is now constrained to `arm64`, so Karpenter provisions Graviton-backed nodes.
 
-> **Note:** `AWS_REGION` in `.kiro/settings/mcp.json` defaults to `us-east-1`. Update it to match the region used for your cluster (i.e., `var.aws_region`).
+That user data now also enables a custom Bottlerocket host container named `log-shipper`, backed by `aws-for-fluent-bit`. It reads the Bottlerocket system journal directly from the host and sends it to the same CloudWatch Logs group used by the cluster through the native `cloudwatch_logs` output plugin, using log streams in the `bottlerocket-<private-dns>` pattern from the journal `_HOSTNAME` field and falling back to `bottlerocket-host` if the record accessor cannot resolve `_HOSTNAME`. The Fluent Bit config now uses a single broad host-journal input, so `kubelet.service`, `containerd.service`, `host-containerd.service`, `host-containers@log-shipper.service`, and other host units are all collected together in the same host stream.
 
-[![Add to Kiro](https://kiro.dev/images/add-to-kiro.svg)](https://kiro.dev/launch/mcp/add?name=awslabs.eks-mcp-server&config=%7B%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22awslabs.eks-mcp-server%40latest%22%2C%22--allow-write%22%2C%22--allow-sensitive-data-access%22%5D%2C%22env%22%3A%7B%22FASTMCP_LOG_LEVEL%22%3A%22ERROR%22%7D%7D)
+Bottlerocket host containers do not expose Kubernetes-style CPU and memory limits through `settings.host-containers.*`. In this repository, the practical guardrail is internal Fluent Bit buffering, controlled by `bottlerocket_log_shipper_storage_backlog_mem_limit` and `bottlerocket_log_shipper_input_mem_buf_limit` in `cluster/variables.tf`.
 
-#### Cursor
+The log shipper now also uses a more defensive Fluent Bit setup for host-level logging: `bottlerocket_log_shipper_storage_max_chunks_up` caps how many filesystem chunks can stay promoted in memory, `storage.pause_on_chunks_overlimit` pauses ingestion instead of growing unbounded memory, `bottlerocket_log_shipper_output_storage_total_limit_size` caps the per-output on-disk backlog, `bottlerocket_log_shipper_max_entries` limits journal reads per cycle, and `bottlerocket_log_shipper_db_sync` controls cursor durability for the systemd input database.
 
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](https://cursor.com/en/install-mcp?name=awslabs.eks-mcp-server&config=eyJhdXRvQXBwcm92ZSI6W10sImRpc2FibGVkIjpmYWxzZSwiY29tbWFuZCI6InV2eCBhd3NsYWJzLmVrcy1tY3Atc2VydmVyQGxhdGVzdCAtLWFsbG93LXdyaXRlIC0tYWxsb3ctc2Vuc2l0aXZlLWRhdGEtYWNjZXNzIiwiZW52Ijp7IkZBU1RNQ1BfTE9HX0xFVkVMIjoiRVJST1IifSwidHJhbnNwb3J0VHlwZSI6InN0ZGlvIn0%3D)
+The Fluent Bit log level is also configurable through `bottlerocket_log_shipper_log_level` in `cluster/variables.tf`. Accepted values are `off`, `error`, `warn`, `info`, `debug`, and `trace`. The levels are hierarchical, so `warn` logs both warnings and errors, while `error` logs only errors.
 
-Or add to `~/.cursor/mcp.json` (replace `us-east-1` with your cluster region):
+![](./img/bottlerocket-host-container-log.png)
 
-```json
-{
-  "mcpServers": {
-    "awslabs.eks-mcp-server": {
-      "command": "uvx",
-      "args": [
-        "awslabs.eks-mcp-server@latest",
-        "--allow-write",
-        "--allow-sensitive-data-access"
-      ],
-      "env": {
-        "AWS_REGION": "us-east-1",
-        "FASTMCP_LOG_LEVEL": "ERROR"
-      }
-    }
-  }
-}
-```
+The BRUPOP release is also parametrized through Terraform variables, so you can control `scheduler_cron_expression`, `update_window_start`, `update_window_stop`, `max_concurrent_updates`, and `exclude_from_lb_wait_time_in_sec` from `cluster/variables.tf` without editing the Helm release directly. The current defaults schedule one run per day at `01:00 UTC`, inside the `00:00:00` to `02:00:00` maintenance window.
 
-#### VS Code
-
-The repository ships a ready-to-use project-scoped config at `.vscode/mcp.json`. Open the project folder in VS Code and the MCP server will be available immediately in GitHub Copilot Chat (agent mode).
-
-> **Note:** `AWS_REGION` in `.vscode/mcp.json` defaults to `us-east-1`. Update it to match the region used for your cluster (i.e., `var.aws_region`).
-
-**Requirements:** VS Code 1.99+ with the [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) extension (or any MCP-compatible extension).
-
-You can also install it with a single click:
-
-[![Install on VS Code](https://img.shields.io/badge/Install_on-VS_Code-FF9900?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=EKS%20MCP%20Server&config=%7B%22autoApprove%22%3A%5B%5D%2C%22disabled%22%3Afalse%2C%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22awslabs.eks-mcp-server%40latest%22%2C%22--allow-write%22%2C%22--allow-sensitive-data-access%22%5D%2C%22env%22%3A%7B%22FASTMCP_LOG_LEVEL%22%3A%22ERROR%22%7D%2C%22transportType%22%3A%22stdio%22%7D)
-
-Or configure manually: add the following to `.vscode/mcp.json` in the project root (replace `us-east-1` with your cluster region):
-
-```json
-{
-  "servers": {
-    "awslabs.eks-mcp-server": {
-      "type": "stdio",
-      "command": "uvx",
-      "args": [
-        "awslabs.eks-mcp-server@latest",
-        "--allow-write",
-        "--allow-sensitive-data-access"
-      ],
-      "env": {
-        "AWS_REGION": "us-east-1",
-        "FASTMCP_LOG_LEVEL": "ERROR"
-      }
-    }
-  }
-}
-```
-
-To verify the server is running, open the Copilot Chat panel, switch to **Agent** mode, and type `@awslabs.eks-mcp-server /tools` — you should see the list of available EKS tools.
-
-### What the EKS MCP Server can do
-
-| Capability | Example prompt |
-|---|---|
-| Describe cluster state | "What is the health status of the bottlerocket-lab cluster?" |
-| List/inspect workloads | "Show me all pods in the `app` namespace and their status" |
-| View logs & events | "Get the last 100 lines of logs from the nginx pod" |
-| Troubleshoot issues | "Why is the nginx deployment not scaling?" |
-| Apply manifests | "Deploy the manifest in `app/nginx-deployment.yaml`" |
-| Generate manifests | "Generate a deployment manifest for a Redis cache with 256 Mi memory" |
-| Cluster insights | "Are there any EKS upgrade insights or health issues I should know about?" |
-
-### Infrastructure changes made for this integration
+### Infrastructure components
 
 | Resource | Purpose |
 |---|---|
-| `aws_cloudwatch_log_group.eks` | Stores EKS control-plane logs so the MCP server can query them |
+| `aws_cloudwatch_log_group.eks` | Stores EKS control-plane logs |
+| `aws_eks_addon.vpc_cni`, `aws_eks_addon.kube_proxy`, and `aws_eks_addon.coredns` | Installs the core EKS managed add-ons for cluster networking and DNS |
+| `aws_eks_addon.pod_identity_agent` | Installs the EKS Pod Identity Agent add-on required before creating Pod Identity associations |
+| `aws_eks_fargate_profile.karpenter` | Runs the Karpenter controller on Fargate instead of EC2 nodes |
+| `helm_release.karpenter` | Installs the Karpenter controller with IRSA and interruption handling |
+| `helm_release.karpenter_resources` | Applies the local Helm chart that manages the Karpenter `EC2NodeClass` and `NodePool` resources |
+| `helm_release.metrics_server` | Installs metrics-server in `kube-system` so the cluster can serve resource metrics |
+| `helm_release.kube_state_metrics` | Installs kube-state-metrics in `kube-system` for Kubernetes object state metrics |
+| `helm_release.cert_manager` | Installs cert-manager and its CRDs, required by the Bottlerocket Update Operator |
+| `helm_release.bottlerocket_shadow` | Installs the `bottlerocket-shadow` CRD chart before the Bottlerocket Update Operator |
+| `helm_release.bottlerocket_update_operator` | Installs the Bottlerocket Update Operator chart after cert-manager and the Bottlerocket Shadow CRD |
 | `enabled_cluster_log_types` on `aws_eks_cluster.this` | Sends API, audit, authenticator, controller-manager, and scheduler logs to CloudWatch |
-| `aws_iam_policy.eks_mcp_server` | Minimum read permissions required by the MCP server |
-| `.kiro/settings/mcp.json` | Ready-to-use MCP configuration for Kiro IDE |
-| `.vscode/mcp.json` | Ready-to-use MCP configuration for VS Code (GitHub Copilot agent mode) |

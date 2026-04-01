@@ -1,0 +1,21 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: {{ .Values.nodePool.name }}
+spec:
+  template:
+    metadata:
+      labels:
+{{ toYaml .Values.nodePool.labels | indent 8 }}
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: {{ .Values.nodeClass.name }}
+      requirements:
+{{ toYaml .Values.nodePool.requirements | indent 8 }}
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: {{ .Values.nodePool.consolidateAfter }}
+  limits:
+{{ toYaml .Values.nodePool.limits | indent 4 }}

@@ -1,0 +1,133 @@
+name: Provision Cluster and Deploy App
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: bottlerocket-lab-provision
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  AWS_DEFAULT_REGION: us-east-1
+  TF_VAR_aws_region: us-east-1
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  provision-cluster:
+    name: Provision EKS Cluster
+    runs-on: ubuntu-latest
+    outputs:
+      cluster_name: ${{ steps.cluster_output.outputs.cluster_name }}
+      karpenter_namespace: ${{ steps.cluster_output.outputs.karpenter_namespace }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with OIDC
+        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: github-actions-bottlerocket-lab
+
+      - name: Configure AWS credentials with access keys
+        if: ${{ secrets.AWS_ROLE_ARN == '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.0
+
+      - name: Terraform init
+        working-directory: cluster
+        run: terraform init
+
+      - name: Terraform plan
+        working-directory: cluster
+        run: terraform plan -out=tfplan
+
+      - name: Terraform apply
+        working-directory: cluster
+        run: terraform apply -auto-approve tfplan
+
+      - name: Export cluster name
+        id: cluster_output
+        working-directory: cluster
+        run: |
+          echo "cluster_name=$(terraform output -raw cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "karpenter_namespace=$(terraform output -raw karpenter_namespace)" >> "$GITHUB_OUTPUT"
+
+  deploy-app:
+    name: Deploy Kubernetes App
+    runs-on: ubuntu-latest
+    needs: provision-cluster
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with OIDC
+        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: github-actions-bottlerocket-lab
+
+      - name: Configure AWS credentials with access keys
+        if: ${{ secrets.AWS_ROLE_ARN == '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.0
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "${{ needs.provision-cluster.outputs.cluster_name }}" --region "${AWS_REGION}"
+
+      - name: Wait for CoreDNS rollout
+        run: kubectl rollout status -n kube-system deployment coredns --timeout=15m
+
+      - name: Wait for Karpenter rollout
+        run: kubectl rollout status -n "${{ needs.provision-cluster.outputs.karpenter_namespace }}" deployment/karpenter --timeout=15m
+
+      - name: Wait for Karpenter EC2NodeClass readiness
+        run: kubectl wait --for=condition=Ready ec2nodeclass/bottlerocket --timeout=15m
+
+      - name: Wait for Karpenter NodePool readiness
+        run: kubectl wait --for=condition=Ready nodepool/default --timeout=15m
+
+      - name: Deploy application
+        run: kubectl apply -f app/nginx-deployment.yaml
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/nginx -n app --timeout=15m
+
+      - name: Show Karpenter resources
+        run: kubectl get nodepool,ec2nodeclass -A
+
+      - name: Show application resources
+        run: kubectl get pods,svc -n app

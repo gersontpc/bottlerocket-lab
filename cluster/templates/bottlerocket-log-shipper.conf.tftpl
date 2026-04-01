@@ -1,0 +1,33 @@
+[SERVICE]
+    Flush                   5
+    Daemon                  Off
+    Log_Level               ${log_level}
+    storage.path            /.bottlerocket/host-containers/current/fluent-bit-storage
+    storage.sync            normal
+    storage.checksum        off
+    storage.max_chunks_up   ${storage_max_chunks_up}
+    storage.backlog.mem_limit ${storage_backlog_mem_limit}
+
+[INPUT]
+    Name                    systemd
+    Tag                     bottlerocket.host
+    Path                    /.bottlerocket/rootfs/var/log/journal
+    DB                      /.bottlerocket/host-containers/current/fluent-bit-systemd-host.db
+    DB.Sync                 ${db_sync}
+    Mem_Buf_Limit           ${input_mem_buf_limit}
+    Max_Entries             ${max_entries}
+    Read_From_Tail          On
+    Strip_Underscores       Off
+    storage.type            filesystem
+    storage.pause_on_chunks_overlimit On
+
+[OUTPUT]
+    Name                    cloudwatch_logs
+    Match                   bottlerocket.*
+    region                  ${aws_region}
+    log_group_name          ${cloudwatch_log_group_name}
+    log_stream_name         bottlerocket-host
+    log_stream_template     bottlerocket-$_HOSTNAME
+    auto_create_group       false
+    auto_retry_requests     true
+    storage.total_limit_size ${output_storage_total_limit_size}

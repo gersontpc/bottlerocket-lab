@@ -1,0 +1,21 @@
+nodeClass:
+  name: bottlerocket
+  amiFamily: Bottlerocket
+  associatePublicIPAddress: true
+  instanceProfile: ""
+  amiSelectorTerms: []
+  subnetSelectorTerms: []
+  securityGroupSelectorTerms: []
+  tags: {}
+  userData: ""
+
+nodePool:
+  name: default
+  labels:
+    os: bottlerocket
+    kubernetes.io/arch: arm64
+  requirements: []
+  consolidateAfter: 1m
+  limits:
+    cpu: "6"
+    memory: 24Gi

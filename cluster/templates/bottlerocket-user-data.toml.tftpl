@@ -1,0 +1,24 @@
+# Custom Bottlerocket user data for Karpenter-managed nodes in ${cluster_name}.
+# Karpenter merges this TOML with the settings required for the node to join the
+# cluster.
+#
+# The log-shipper host container tails the Bottlerocket system journal and ships
+# it to the shared EKS CloudWatch log group.
+#
+# Example:
+[settings.host-containers.admin]
+enabled = true
+
+# [settings.kernel]
+# lockdown = "integrity"
+
+[settings.host-containers.log-shipper]
+enabled = true
+superpowered = true
+source = "${log_shipper_image}"
+user-data = "${log_shipper_user_data_b64}"
+command = [
+	"/fluent-bit/bin/fluent-bit",
+	"-c",
+	"/.bottlerocket/host-containers/log-shipper/user-data",
+]
