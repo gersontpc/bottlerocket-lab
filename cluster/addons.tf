@@ -11,6 +11,7 @@ resource "aws_eks_addon" "vpc_cni" {
   depends_on = [
     aws_eks_cluster.this,
     aws_iam_role_policy_attachment.node_AmazonEKS_CNI_Policy,
+    aws_eks_access_entry.karpenter_nodes,
   ]
 }
 
@@ -22,6 +23,7 @@ resource "aws_eks_addon" "kube_proxy" {
 
   depends_on = [
     aws_eks_cluster.this,
+    aws_eks_access_entry.karpenter_nodes,
   ]
 }
 
@@ -33,6 +35,7 @@ resource "aws_eks_addon" "coredns" {
 
   depends_on = [
     aws_eks_cluster.this,
+    aws_eks_access_entry.karpenter_nodes,
   ]
 }
 
@@ -44,6 +47,7 @@ resource "aws_eks_addon" "pod_identity_agent" {
 
   depends_on = [
     aws_eks_cluster.this,
+    aws_eks_access_entry.karpenter_nodes,
   ]
 }
 
